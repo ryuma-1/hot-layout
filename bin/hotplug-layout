@@ -75,8 +75,11 @@ apply_xkb_layout() {
 }
 
 # Mozc の各エンジンの layout を書き換え、変化があれば IBus を再起動する
+#   2番目の引数が startup なら、変化がなくても再起動する
+#   （起動時は実行中の IBus/Mozc がファイルと違う配列で動いていることがあるため）
 apply_mozc_layout() {
-  local want="$1" current new
+  local want="$1" startup="${2:-}" current new note=""
+  [[ "$startup" == startup ]] && note="startup, "
   if [[ ! -f "$MOZC_CONFIG" ]]; then
     log "mozc config not found: ${MOZC_CONFIG} (skip)"
     return
@@ -88,14 +91,17 @@ apply_mozc_layout() {
 
   if [[ "$current" != "$new" ]]; then
     printf '%s\n' "$new" >"$MOZC_CONFIG"
-    if ibus write-cache && ibus restart; then
-      log "mozc -> ${want}  (ibus restarted)"
-      wait_ibus || log "ibus did not come back within 5s"
-    else
-      log "mozc -> ${want}  (ibus restart FAILED)"
-    fi
-    CHANGED=1
+  elif [[ -z "$note" ]]; then
+    return
   fi
+
+  if ibus write-cache && ibus restart; then
+    log "mozc -> ${want}  (${note}ibus restarted)"
+    wait_ibus || log "ibus did not come back within 5s"
+  else
+    log "mozc -> ${want}  (${note}ibus restart FAILED)"
+  fi
+  CHANGED=1
 }
 
 # IBus の再起動が終わるまで待つ（最大5秒）
@@ -138,12 +144,13 @@ reactivate() {
   fi
 }
 
+# 引数が startup なら起動時の初回判定（apply_mozc_layout を参照）
 check() {
   local layout
   layout=$(decide_layout)
   CHANGED=0
   apply_xkb_layout "$layout"
-  apply_mozc_layout "$layout"
+  apply_mozc_layout "$layout" "${1:-}"
   if (( CHANGED )); then
     reactivate
   fi
@@ -151,7 +158,7 @@ check() {
 
 main() {
   log "watching: rules='${KEYBOARD_RULES}' default=${DEFAULT_LAYOUT}"
-  check
+  check startup
 
   # input サブシステムの抜き差しを監視（1回の接続で大量にイベントが来るので1秒まとめてから判定）
   udevadm monitor --udev --subsystem-match=input | while read -r line; do

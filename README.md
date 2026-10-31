@@ -66,7 +66,7 @@ journalctl --user -u hotplug-layout -f
 ## Limitations
 
 - 外付けキーボードを接続している間は、内蔵キーボードも外付けの配列になります（GNOME の配列はすべてのキーボードで共通のため）。
-- 切り替えのたびに IBus が再起動するため、約1秒日本語入力が止まります。
+- 切り替えのたびとサービスの起動時（ログイン時など）に IBus が再起動するため、約1秒日本語入力が止まります。
 - 切り替えの瞬間、入力ソースの表示が一瞬変わります。
 
 ## Development
@@ -105,10 +105,11 @@ KEYBOARD_RULES='Keychron K2=us' DEFAULT_LAYOUT=jp bin/hotplug-layout
 ```bash
 tests/test_decide_layout.sh
 tests/test_apply_xkb_layout.sh
+tests/test_apply_mozc_layout.sh
 shellcheck -x bin/hotplug-layout install.sh uninstall.sh tests/*.sh
 ```
 
-テストは実機のキーボードも GNOME も使いません。`test_decide_layout.sh` は `tests/fixtures/` の偽のデバイス一覧で、どの配列が選ばれるかを確かめます。`test_apply_xkb_layout.sh` は `gsettings` を偽物に差し替えて、入力ソースの書き換え方を確かめます。
+テストは実機のキーボードも GNOME も使いません。`test_decide_layout.sh` は `tests/fixtures/` の偽のデバイス一覧で、どの配列が選ばれるかを確かめます。`test_apply_xkb_layout.sh` は `gsettings` を偽物に差し替えて、入力ソースの書き換え方を確かめます。`test_apply_mozc_layout.sh` は `ibus` を偽物に差し替えて、起動時とホットプラグのときに IBus が再起動されるかを確かめます。
 
 新しいデバイス一覧で判定を手早く確かめたいときは、`INPUT_DEVICES` 環境変数で本体が読む一覧を差し替えられます。
 
