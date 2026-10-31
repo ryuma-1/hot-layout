@@ -228,7 +228,7 @@ show_wait() {
   printf -v bar '%*s' "$filled" ''
   bar="${bar// /#}"
   printf -v bar '%-*s' "$width" "$bar"
-  printf '\r\033[K    待機中 [%s] 残り %d 秒' "${bar// /-}" $(( (total - $1 + 1) / 2 )) >&2
+  printf '\r\033[K    待機中 [%s] 残り %d 秒で一覧に切り替え' "${bar// /-}" $(( (total - $1 + 1) / 2 )) >&2
 }
 clear_wait() { [[ -t 2 ]] && printf '\r\033[K' >&2; return 0; }
 

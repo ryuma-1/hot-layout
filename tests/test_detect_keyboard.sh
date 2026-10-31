@@ -46,7 +46,7 @@ source ./install.sh
 DETECT_TIMEOUT=2 INPUT_DEVICES='$devices'
 detect_keyboard >'$tmp/out'
 EOS
-  SCREEN=$( (sleep "$1"; printf "$2"; sleep 1) | script -qec "bash '$tmp/run.sh'" /dev/null)
+  SCREEN=$( (sleep "$1"; printf '%b' "$2"; sleep 1) | script -qec "bash '$tmp/run.sh'" /dev/null)
   RC=$?
   OUT=$(cat "$tmp/out")
   wait
@@ -57,20 +57,22 @@ EOS
 screen_lines() { printf '%s' "$SCREEN" | tr -cd '\n' | wc -c; }
 # 残り秒数を含む行の数（上書きされていれば 1）
 countdown_lines() { printf '%s\n' "$SCREEN" | grep -c '残り'; }
+# comm の警告の行数
+comm_lines() { printf '%s\n' "$SCREEN" | grep -c 'comm:'; }
 
 # 自動検出: 接続を検出して、既定値のまま登録する
 run_detect 4 '\n\n' 1
 expect "検出: 終了コード 0"                  0 "$RC"
 expect "検出: 標準出力は パターン=配列 だけ" "Keychron K2=us" "$OUT"
-expect "検出: comm の警告が出ない"           0 "$(printf '%s\n' "$SCREEN" | grep -c 'comm:')"
+expect "検出: comm の警告が出ない"           0 "$(comm_lines)"
 expect "検出: 残り秒数は1行で上書き"         1 "$(countdown_lines)"
-(( $(screen_lines) <= 20 )) || expect "検出: 画面は20行以内" "<= 20" "$(screen_lines)"
+expect "検出: 画面は20行以内"               1 "$(( $(screen_lines) <= 20 ))"
 
 # 時間切れ: 一覧に切り替わり、番号で選ぶ
 run_detect 4 '1\n\n\n'
 expect "時間切れ: 終了コード 0"              0 "$RC"
 expect "時間切れ: 一覧から選べる"            "AT Translated Set 2 keyboard=us" "$OUT"
-expect "時間切れ: comm の警告が出ない"       0 "$(printf '%s\n' "$SCREEN" | grep -c 'comm:')"
+expect "時間切れ: comm の警告が出ない"       0 "$(comm_lines)"
 expect "時間切れ: 残り秒数は1行で上書き"     1 "$(countdown_lines)"
 
 # 標準エラーが端末でないとき（ログに取るときなど）は、上書き用の制御文字を出さない
