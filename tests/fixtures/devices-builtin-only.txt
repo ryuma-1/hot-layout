@@ -1,0 +1,13 @@
+I: Bus=0019 Vendor=0000 Product=0001 Version=0000
+N: Name="Power Button"
+P: Phys=LNXPWRBN/button/input0
+S: Sysfs=/devices/LNXSYSTM:00/LNXPWRBN:00/input/input2
+H: Handlers=kbd event2
+B: EV=3
+
+I: Bus=0011 Vendor=0001 Product=0001 Version=ab83
+N: Name="AT Translated Set 2 keyboard"
+P: Phys=isa0060/serio0/input0
+S: Sysfs=/devices/platform/i8042/serio0/input/input3
+H: Handlers=sysrq kbd event3 leds
+B: EV=120013

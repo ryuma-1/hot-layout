@@ -1,0 +1,15 @@
+[Unit]
+Description=Switch keyboard layout (XKB and Mozc) depending on connected keyboard
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+# 設定は ~/.config/hotplug-layout/config に書く（%E は XDG_CONFIG_HOME、既定は ~/.config）
+# 先頭の - は「ファイルが無くてもエラーにしない」の意味
+EnvironmentFile=-%E/hotplug-layout/config
+ExecStart=%h/.local/bin/hotplug-layout
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

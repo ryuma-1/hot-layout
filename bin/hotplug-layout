@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# 接続中のキーボードに応じて GNOME の XKB 配列と Mozc の配列を自動で切り替える
+#
+# 環境変数で設定（通常は ~/.config/hotplug-layout/config に書き、systemd が読み込む）:
+#   KEYBOARD_RULES : 「キーボード名の正規表現=配列」を ; 区切りで並べたもの
+#                    複数が接続中なら、最後に接続したキーボードの配列を使う
+#                    例: "Keychron K2=us;REALFORCE=jp;HHKB=us"
+#   DEFAULT_LAYOUT : どのルールにも当てはまらないときの配列（例: jp）
+#   MOZC_CONFIG    : Mozc の IBus 設定ファイル
+#   INPUT_DEVICES  : 入力デバイス一覧（通常は変更不要）
+#   IS_PATH / IS_IFACE : 入力ソースを切り替える GNOME 拡張の D-Bus パスとインターフェース
+#                        （拡張「Input source D-Bus interface」用。違う拡張なら変更）
+set -uo pipefail
+
+KEYBOARD_RULES="${KEYBOARD_RULES:-HHKB=us}"
+DEFAULT_LAYOUT="${DEFAULT_LAYOUT:-jp}"
+MOZC_CONFIG="${MOZC_CONFIG:-$HOME/.config/mozc/ibus_config.textproto}"
+INPUT_DEVICES="${INPUT_DEVICES:-/proc/bus/input/devices}"
+IS_PATH="${IS_PATH:-/raiden_fumo/InputSources}"
+IS_IFACE="${IS_IFACE:-raiden_fumo.InputSources}"
+
+SCHEMA="org.gnome.desktop.input-sources"
+CHANGED=0
+
+log() { echo "[hotplug-layout] $*"; }
+
+# 使うべき配列を標準出力に出す
+#   ルールに当てはまるデバイスのうち、最後に接続されたものの配列を使う
+#   デバイス一覧は接続順に並ぶので、後ろの行ほど新しい
+#   1台が複数のルールに当てはまるときは、先に書いたルールを使う
+decide_layout() {
+  local rule pattern layout last best=0 best_layout="$DEFAULT_LAYOUT"
+  local IFS=';'
+  for rule in $KEYBOARD_RULES; do
+    [[ -n "$rule" ]] || continue
+    pattern="${rule%=*}"   # 最後の = より前
+    layout="${rule##*=}"   # 最後の = より後
+    if [[ -z "$pattern" || -z "$layout" || "$pattern" == "$rule" ]]; then
+      log "invalid rule ignored: '${rule}'" >&2
+      continue
+    fi
+    last=$(grep -niE "^N: Name=.*(${pattern})" "$INPUT_DEVICES" | tail -n1 | cut -d: -f1)
+    if [[ -n "$last" ]] && (( last > best )); then
+      best=$last
+      best_layout=$layout
+    fi
+  done
+  echo "$best_layout"
+}
+
+# GNOME 入力ソース一覧の xkb エントリを書き換える
+apply_xkb_layout() {
+  local want="$1" current new old target
+  current=$(gsettings get "$SCHEMA" sources)
+
+  if [[ "$current" == *"('xkb', "* ]]; then
+    # 最初の xkb エントリだけ差し替える（ibus/mozc などはそのまま残す）
+    # 同じ配列が後ろにもあるときは、重複しないよう2つを入れ替える
+    old=$(grep -oE "\('xkb', '[^']+'\)" <<<"$current" | head -n1)
+    target="('xkb', '${want}')"
+    new=${current/"$target"/@@}
+    new=${new/"$old"/"$target"}
+    new=${new/@@/"$old"}
+  elif [[ "$current" == "@a(ss) []" || "$current" == "[]" ]]; then
+    new="[('xkb', '${want}')]"
+  else
+    new="[('xkb', '${want}'), ${current#[}"
+  fi
+
+  if [[ "$current" != "$new" ]]; then
+    gsettings set "$SCHEMA" sources "$new"
+    log "xkb  -> ${want}  (${new})"
+    CHANGED=1
+  fi
+}
+
+# Mozc の各エンジンの layout を書き換え、変化があれば IBus を再起動する
+apply_mozc_layout() {
+  local want="$1" current new
+  if [[ ! -f "$MOZC_CONFIG" ]]; then
+    log "mozc config not found: ${MOZC_CONFIG} (skip)"
+    return
+  fi
+
+  current=$(<"$MOZC_CONFIG")
+  # `layout : "xxx"` の行だけ対象（layout_variant / layout_option は対象外）
+  new=$(sed -E "s/^([[:space:]]*layout[[:space:]]*:[[:space:]]*)\"[^\"]*\"/\1\"${want}\"/" <<<"$current")
+
+  if [[ "$current" != "$new" ]]; then
+    printf '%s\n' "$new" >"$MOZC_CONFIG"
+    if ibus write-cache && ibus restart; then
+      log "mozc -> ${want}  (ibus restarted)"
+      wait_ibus || log "ibus did not come back within 5s"
+    else
+      log "mozc -> ${want}  (ibus restart FAILED)"
+    fi
+    CHANGED=1
+  fi
+}
+
+# IBus の再起動が終わるまで待つ（最大5秒）
+wait_ibus() {
+  local _
+  sleep 0.5
+  for _ in $(seq 1 45); do
+    ibus list-engine >/dev/null 2>&1 && return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+# gsettings の値から入力ソースの ID だけを1行ずつ取り出す
+#   [('xkb', 'us'), ('ibus', 'mozc-jp')] -> us / mozc-jp
+source_ids() {
+  grep -oE "\('[a-z]+', '[^']+'\)" | sed -E "s/\('[a-z]+', '([^']+)'\)/\1/"
+}
+
+is_set() {
+  gdbus call --session --dest org.gnome.Shell --object-path "$IS_PATH" \
+    --method "${IS_IFACE}.Set" "$1" >/dev/null
+}
+
+# 今の入力ソースをいったん別のものに切り替えてから戻し、新しい配列を適用させる
+# （Super+Space を2回押すのと同じ）
+reactivate() {
+  local cur other
+  cur=$(gsettings get "$SCHEMA" mru-sources | source_ids | head -n1)
+  [[ -n "$cur" ]] || cur=$(gsettings get "$SCHEMA" sources | source_ids | head -n1)
+  other=$(gsettings get "$SCHEMA" sources | source_ids | grep -vxF "$cur" | head -n1)
+  if [[ -z "$cur" || -z "$other" ]]; then
+    log "reactivate skipped (need 2+ input sources)"
+    return
+  fi
+  if is_set "$other" && is_set "$cur"; then
+    log "reactivated: ${cur}"
+  else
+    log "reactivate FAILED (is the 'Input source D-Bus interface' extension enabled?)"
+  fi
+}
+
+check() {
+  local layout
+  layout=$(decide_layout)
+  CHANGED=0
+  apply_xkb_layout "$layout"
+  apply_mozc_layout "$layout"
+  if (( CHANGED )); then
+    reactivate
+  fi
+}
+
+main() {
+  log "watching: rules='${KEYBOARD_RULES}' default=${DEFAULT_LAYOUT}"
+  check
+
+  # input サブシステムの抜き差しを監視（1回の接続で大量にイベントが来るので1秒まとめてから判定）
+  udevadm monitor --udev --subsystem-match=input | while read -r line; do
+    [[ "$line" == UDEV* ]] || continue
+    while read -r -t 1 _; do :; done
+    check
+  done
+}
+
+# 直接実行されたときだけ main を動かす（テストから source したときは関数定義だけ読み込む）
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main
+fi

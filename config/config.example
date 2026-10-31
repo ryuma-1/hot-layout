@@ -1,0 +1,22 @@
+# hotplug-layout の設定ファイル
+# 置き場所: ~/.config/hotplug-layout/config
+# 変更したら反映: systemctl --user restart hotplug-layout
+#
+# 値はシングルクォートで囲むと、スペースや \ をそのまま書ける
+
+# 「キーボード名の正規表現=配列」を ; 区切りで並べる。複数が繋がっているときは、最後に繋いだキーボードの配列になる
+#   キーボード名は `grep Name= /proc/bus/input/devices` で確認できる
+#   大文字小文字は区別しない。HHKB|Keychron のように | で複数指定もできる
+KEYBOARD_RULES='Keychron K2=us;REALFORCE=jp'
+
+# どのルールにも当てはまらないとき（外付けが無いとき）の配列
+DEFAULT_LAYOUT='jp'
+
+# --- 以下は通常変更不要 ---
+
+# Mozc の設定ファイル
+#MOZC_CONFIG='/home/you/.config/mozc/ibus_config.textproto'
+
+# 入力ソースを選び直す GNOME 拡張（Input source D-Bus interface）の D-Bus パス
+#IS_PATH='/raiden_fumo/InputSources'
+#IS_IFACE='raiden_fumo.InputSources'
