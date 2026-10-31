@@ -130,7 +130,9 @@ backup_mozc() {
 
 # /proc/bus/input/devices を「Sysfs<TAB>EV<TAB>名前」の1行1デバイスに変換して並べる
 #   Sysfs はデバイスごとに固有なので、同じ名前のデバイスがあっても区別できる
-#   comm で比べるので、sort と comm の並び順を C ロケールで揃える（ja_JP.UTF-8 では食い違う）
+#   comm で比べるので、sort と comm の並び順を C ロケール（バイト順）で揃える
+#   uutils coreutils の comm はロケールを無視してバイト順を前提にするが、sort はロケールに従う
+#   （ja_JP.UTF-8 では "i8042" が "PNP0C0C" より前に並び、comm が警告して失敗する）
 device_table() {
   local line name="" sysfs="" ev=""
   while IFS= read -r line || [[ -n "$name" ]]; do

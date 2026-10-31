@@ -11,7 +11,7 @@ set +e   # install.sh の set -e を外して、失敗しても最後まで確�
 
 FIXTURES=tests/fixtures
 failed=0
-# ja_JP.UTF-8 では sort と comm の並び順が食い違うことがある（devices-laptop*.txt で起きる）
+# uutils coreutils では、ja_JP.UTF-8 の sort の順（i8042 → PNP0C0C）を comm がバイト順でないと判断する（devices-laptop*.txt で起きる）
 export LC_ALL=ja_JP.UTF-8
 
 # expect "説明" 期待値 実際の値
