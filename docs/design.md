@@ -139,11 +139,13 @@ udevadm monitor --udev --subsystem-match=input
 udevadm monitor ... | while read -r line; do
   [[ "$line" == UDEV* ]] || continue
   while read -r -t 1 _; do :; done   # 1 秒間何も来なくなるまで読み捨てる
-  check
+  apply_layout
 done
 ```
 
-起動時にも1回 `check` を実行する。ログイン時点ですでに繋がっているキーボードに対応するため。
+起動時にも1回 `sync_layout` を実行する。ログイン時点ですでに繋がっているキーボードに対応するため。
+
+起動時は、Mozc の設定ファイルがすでに決定した配列と同じでも IBus を再起動し、入力ソースを選び直す（ログは `mozc -> us  (startup, ibus restarted)`）。実行中の IBus/Mozc がファイルと違う配列で動いていることがあるため（例：前に動いていたサービスがファイルを書き換えたあと、IBus の再起動に失敗した、または再起動の途中で止められた）。ホットプラグのときは、変化がなければ何もしない。
 
 ### 4.3 ステップ2：配列の判定（`decide_layout`）
 
@@ -181,7 +183,7 @@ grep -qiE "^N: Name=.*(${pattern})" "$INPUT_DEVICES"
 
 この時点で gnome-shell は一覧の変更を検知するが、今の入力ソースは選び直されない。キーマップはまだ古いままである（2.2）。
 
-### 4.5 ステップ4：Mozc 配列の書き換え（`apply_mozc_layout`）
+### 4.5 ステップ4：Mozc 配列の書き換え（`update_mozc_config`）
 
 `ibus_config.textproto` の `layout : "..."` の行を、すべてのエンジン（`mozc-jp`、`mozc-on`、`mozc-off`）について書き換える。
 
@@ -191,12 +193,13 @@ sed -E 's/^([[:space:]]*layout[[:space:]]*:[[:space:]]*)"[^"]*"/\1"us"/'
 
 - 行頭からの `layout :` だけを対象にし、`layout_variant` と `layout_option` の行は変えない。
 - 値が変わらないときは書き込まない。
+- ホットプラグ時（`apply_mozc_layout`）は、値が変わったときだけ次のステップに進む。起動時（`sync_mozc_layout`）は、変わらなくても進む（4.2）。
 
 **必要な理由**：日本語の入力中は、xkb の配列ではなく Mozc の `layout` が使われる（2.2）。`"default"` のままだと直前の配列が残るので、xkb 側だけを切り替えても、Mozc に切り替えた瞬間に意図しない配列になりうる。そこで、Mozc にも明示的に配列を持たせる。
 
 **副作用**：Mozc 内部では、この値が「かな入力」の対応表の選択にも使われる（`layout != "us"` なら JIS 用）。ローマ字入力には影響しない。
 
-### 4.6 ステップ5：IBus の再起動
+### 4.6 ステップ5：IBus の再起動（`restart_ibus`）
 
 ```bash
 ibus write-cache && ibus restart
@@ -262,7 +265,7 @@ Super+Space を2回押す操作と同じである。同じ入力ソースを1回
 | 制約 | 原因 |
 |---|---|
 | 外付けを繋いでいる間は、内蔵キーボードも外付けの配列になる | キーマップが1つで、接続状況だけで判定しているため（2.3） |
-| 切り替えのたびに約1秒、日本語入力が止まる | IBus の再起動（4.6） |
+| 切り替えのたびとサービスの起動時に約1秒、日本語入力が止まる | IBus の再起動（4.6） |
 | 切り替えの瞬間、入力ソースの表示が一瞬変わる | 選び直しで別の入力ソースを経由するため（4.7） |
 | Bluetooth キーボードのスリープで、配列が戻る | スリープで切断され、切断として扱われるため |
 | Mozc の `layout` が上書きされる | 4.5 の書き換え。インストール時にバックアップを取り、アンインストール時に戻す |
@@ -287,6 +290,7 @@ Super+Space を2回押す操作と同じである。同じ入力ソースを1回
 | 対象 | 方法 |
 |---|---|
 | ルール判定（4.3） | `tests/test_decide_layout.sh`。`INPUT_DEVICES` で `tests/fixtures/` の偽のデバイス一覧を渡し、選ばれる配列を確かめる |
+| Mozc の書き換えと起動時の再起動（4.5〜4.6） | `tests/test_apply_mozc_layout.sh`。`ibus` を偽物に差し替えて、再起動されるかを確かめる |
 | 静的解析 | shellcheck |
 | 実機での動作 | 手動。USB と Bluetooth で抜き差しする、スリープから復帰する、GNOME 拡張を無効にして `reactivate FAILED` が出るか確かめる |
 
