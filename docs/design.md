@@ -143,9 +143,9 @@ udevadm monitor ... | while read -r line; do
 done
 ```
 
-起動時にも1回 `check startup` を実行する。ログイン時点ですでに繋がっているキーボードに対応するため。
+起動時にも1回 `check_startup` を実行する。ログイン時点ですでに繋がっているキーボードに対応するため。
 
-起動時は、Mozc の設定ファイルがすでに決定した配列と同じでも IBus を再起動し、入力ソースを選び直す（ログは `mozc -> us  (startup, ibus restarted)`）。実行中の IBus/Mozc がファイルと違う配列で動いていることがあるため（例：`install.sh` の途中でファイルだけ書き換わった）。ホットプラグのときは、変化がなければ何もしない。
+起動時は、Mozc の設定ファイルがすでに決定した配列と同じでも IBus を再起動し、入力ソースを選び直す（ログは `mozc -> us  (startup, ibus restarted)`）。実行中の IBus/Mozc がファイルと違う配列で動いていることがあるため（例：前に動いていたサービスがファイルを書き換えたあと、IBus の再起動に失敗した、または再起動の途中で止められた）。ホットプラグのときは、変化がなければ何もしない。
 
 ### 4.3 ステップ2：配列の判定（`decide_layout`）
 
@@ -183,7 +183,7 @@ grep -qiE "^N: Name=.*(${pattern})" "$INPUT_DEVICES"
 
 この時点で gnome-shell は一覧の変更を検知するが、今の入力ソースは選び直されない。キーマップはまだ古いままである（2.2）。
 
-### 4.5 ステップ4：Mozc 配列の書き換え（`apply_mozc_layout`）
+### 4.5 ステップ4：Mozc 配列の書き換え（`update_mozc_config`）
 
 `ibus_config.textproto` の `layout : "..."` の行を、すべてのエンジン（`mozc-jp`、`mozc-on`、`mozc-off`）について書き換える。
 
@@ -193,12 +193,13 @@ sed -E 's/^([[:space:]]*layout[[:space:]]*:[[:space:]]*)"[^"]*"/\1"us"/'
 
 - 行頭からの `layout :` だけを対象にし、`layout_variant` と `layout_option` の行は変えない。
 - 値が変わらないときは書き込まない。
+- ホットプラグ時（`apply_mozc_layout`）は、値が変わったときだけ次のステップに進む。起動時（`sync_mozc_layout`）は、変わらなくても進む（4.2）。
 
 **必要な理由**：日本語の入力中は、xkb の配列ではなく Mozc の `layout` が使われる（2.2）。`"default"` のままだと直前の配列が残るので、xkb 側だけを切り替えても、Mozc に切り替えた瞬間に意図しない配列になりうる。そこで、Mozc にも明示的に配列を持たせる。
 
 **副作用**：Mozc 内部では、この値が「かな入力」の対応表の選択にも使われる（`layout != "us"` なら JIS 用）。ローマ字入力には影響しない。
 
-### 4.6 ステップ5：IBus の再起動
+### 4.6 ステップ5：IBus の再起動（`restart_ibus`）
 
 ```bash
 ibus write-cache && ibus restart

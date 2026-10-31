@@ -74,27 +74,27 @@ apply_xkb_layout() {
   fi
 }
 
-# Mozc の各エンジンの layout を書き換え、変化があれば IBus を再起動する
-#   2番目の引数が startup なら、変化がなくても再起動する
-#   （起動時は実行中の IBus/Mozc がファイルと違う配列で動いていることがあるため）
-apply_mozc_layout() {
-  local want="$1" startup="${2:-}" current new note=""
-  [[ "$startup" == startup ]] && note="startup, "
+# Mozc の設定ファイルの各エンジンの layout を書き換える
+#   中身が変わったら 0、変わらない・ファイルがないなら 1 を返す
+update_mozc_config() {
+  local want="$1" current new
   if [[ ! -f "$MOZC_CONFIG" ]]; then
     log "mozc config not found: ${MOZC_CONFIG} (skip)"
-    return
+    return 1
   fi
 
   current=$(<"$MOZC_CONFIG")
   # `layout : "xxx"` の行だけ対象（layout_variant / layout_option は対象外）
   new=$(sed -E "s/^([[:space:]]*layout[[:space:]]*:[[:space:]]*)\"[^\"]*\"/\1\"${want}\"/" <<<"$current")
 
-  if [[ "$current" != "$new" ]]; then
-    printf '%s\n' "$new" >"$MOZC_CONFIG"
-  elif [[ -z "$note" ]]; then
-    return
-  fi
+  [[ "$current" != "$new" ]] || return 1
+  printf '%s\n' "$new" >"$MOZC_CONFIG"
+}
 
+# IBus を再起動して、Mozc に設定ファイルを読み直させる
+#   2番目の引数はログに添える文字列（例: "startup, "）
+restart_ibus() {
+  local want="$1" note="${2:-}"
   if ibus write-cache && ibus restart; then
     log "mozc -> ${want}  (${note}ibus restarted)"
     wait_ibus || log "ibus did not come back within 5s"
@@ -102,6 +102,18 @@ apply_mozc_layout() {
     log "mozc -> ${want}  (${note}ibus restart FAILED)"
   fi
   CHANGED=1
+}
+
+# ホットプラグ時：Mozc の配列が変わったときだけ IBus を再起動する
+apply_mozc_layout() {
+  update_mozc_config "$1" && restart_ibus "$1"
+}
+
+# 起動時：変化がなくても IBus を再起動する
+#   （実行中の IBus/Mozc がファイルと違う配列で動いていることがあるため）
+sync_mozc_layout() {
+  update_mozc_config "$1"
+  [[ -f "$MOZC_CONFIG" ]] && restart_ibus "$1" "startup, "
 }
 
 # IBus の再起動が終わるまで待つ（最大5秒）
@@ -144,21 +156,40 @@ reactivate() {
   fi
 }
 
-# 引数が startup なら起動時の初回判定（apply_mozc_layout を参照）
-check() {
-  local layout
-  layout=$(decide_layout)
+# 判定の前半：CHANGED を戻し、GNOME の xkb 配列を反映する
+start_check() {
   CHANGED=0
-  apply_xkb_layout "$layout"
-  apply_mozc_layout "$layout" "${1:-}"
+  apply_xkb_layout "$1"
+}
+
+# 判定の後半：何か変わっていれば入力ソースを選び直す
+finish_check() {
   if (( CHANGED )); then
     reactivate
   fi
 }
 
+# ホットプラグ時の判定
+check() {
+  local layout
+  layout=$(decide_layout)
+  start_check "$layout"
+  apply_mozc_layout "$layout"
+  finish_check
+}
+
+# 起動時の初回判定：Mozc は変化がなくても同期させる
+check_startup() {
+  local layout
+  layout=$(decide_layout)
+  start_check "$layout"
+  sync_mozc_layout "$layout"
+  finish_check
+}
+
 main() {
   log "watching: rules='${KEYBOARD_RULES}' default=${DEFAULT_LAYOUT}"
-  check startup
+  check_startup
 
   # input サブシステムの抜き差しを監視（1回の接続で大量にイベントが来るので1秒まとめてから判定）
   udevadm monitor --udev --subsystem-match=input | while read -r line; do
