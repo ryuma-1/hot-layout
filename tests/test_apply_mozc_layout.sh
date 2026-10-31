@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Mozc 配列の書き換え（update_mozc_config / apply_mozc_layout / sync_mozc_layout）と
-# 起動時の判定（check_startup）のテスト
+# 配列の反映（apply_layout / sync_layout）のテスト
 #   ibus を偽物に差し替えて、再起動されたかを確かめる
 #   実行: tests/test_apply_mozc_layout.sh
 set -uo pipefail
@@ -71,13 +71,16 @@ expect "起動時に配列が変われば書き換えて再起動" "1 layout : \
 setup; sync_mozc_layout us
 expect "起動時でもファイルがなければ再起動しない" "0 0" "$RESTARTS $CHANGED"
 
-# check_startup / check: Mozc が変われば入力ソースを選び直す
-setup us; check_startup
-expect "起動時の判定は選び直す"             "1 1" "$RESTARTS $REACTIVATED"
-setup us; check
-expect "ホットプラグの判定は何もしない"     "0 0" "$RESTARTS $REACTIVATED"
-setup jp; check
+# sync_layout / apply_layout: Mozc が変われば入力ソースを選び直す
+setup us; sync_layout
+expect "起動時の反映は選び直す"             "1 1" "$RESTARTS $REACTIVATED"
+expect "選び直したら CHANGED を戻す"        0 "$CHANGED"
+setup us; apply_layout
+expect "ホットプラグの反映は何もしない"     "0 0" "$RESTARTS $REACTIVATED"
+setup jp; apply_layout
 expect "ホットプラグで配列が変われば選び直す" "1 1" "$RESTARTS $REACTIVATED"
+setup us; CHANGED=1; reactivate_if_changed; REACTIVATED=0; apply_layout
+expect "前回の CHANGED を持ち越さない"      0 "$REACTIVATED"
 
 if (( failed )); then
   echo "テストに失敗しました"

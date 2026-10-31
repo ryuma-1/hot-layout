@@ -156,46 +156,42 @@ reactivate() {
   fi
 }
 
-# 判定の前半：CHANGED を戻し、GNOME の xkb 配列を反映する
-start_check() {
-  CHANGED=0
-  apply_xkb_layout "$1"
-}
-
-# 判定の後半：何か変わっていれば入力ソースを選び直す
-finish_check() {
+# 何か変わっていれば入力ソースを選び直す
+#   使い終わった CHANGED はここで 0 に戻す（初期値はスクリプト冒頭の CHANGED=0）
+reactivate_if_changed() {
   if (( CHANGED )); then
     reactivate
   fi
+  CHANGED=0
 }
 
-# ホットプラグ時の判定
-check() {
+# ホットプラグ時：配列を決めて反映する（変化がなければ何もしない）
+apply_layout() {
   local layout
   layout=$(decide_layout)
-  start_check "$layout"
+  apply_xkb_layout "$layout"
   apply_mozc_layout "$layout"
-  finish_check
+  reactivate_if_changed
 }
 
-# 起動時の初回判定：Mozc は変化がなくても同期させる
-check_startup() {
+# 起動時：配列を決めて反映する。Mozc は変化がなくても同期させる
+sync_layout() {
   local layout
   layout=$(decide_layout)
-  start_check "$layout"
+  apply_xkb_layout "$layout"
   sync_mozc_layout "$layout"
-  finish_check
+  reactivate_if_changed
 }
 
 main() {
   log "watching: rules='${KEYBOARD_RULES}' default=${DEFAULT_LAYOUT}"
-  check_startup
+  sync_layout
 
   # input サブシステムの抜き差しを監視（1回の接続で大量にイベントが来るので1秒まとめてから判定）
   udevadm monitor --udev --subsystem-match=input | while read -r line; do
     [[ "$line" == UDEV* ]] || continue
     while read -r -t 1 _; do :; done
-    check
+    apply_layout
   done
 }
 

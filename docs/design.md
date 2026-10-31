@@ -139,11 +139,11 @@ udevadm monitor --udev --subsystem-match=input
 udevadm monitor ... | while read -r line; do
   [[ "$line" == UDEV* ]] || continue
   while read -r -t 1 _; do :; done   # 1 秒間何も来なくなるまで読み捨てる
-  check
+  apply_layout
 done
 ```
 
-起動時にも1回 `check_startup` を実行する。ログイン時点ですでに繋がっているキーボードに対応するため。
+起動時にも1回 `sync_layout` を実行する。ログイン時点ですでに繋がっているキーボードに対応するため。
 
 起動時は、Mozc の設定ファイルがすでに決定した配列と同じでも IBus を再起動し、入力ソースを選び直す（ログは `mozc -> us  (startup, ibus restarted)`）。実行中の IBus/Mozc がファイルと違う配列で動いていることがあるため（例：前に動いていたサービスがファイルを書き換えたあと、IBus の再起動に失敗した、または再起動の途中で止められた）。ホットプラグのときは、変化がなければ何もしない。
 
