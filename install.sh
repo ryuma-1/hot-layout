@@ -34,6 +34,7 @@ ASSUME_YES=0
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+item() { printf '    %s\n' "$*" >&2; }   # 一覧の1項目（==> の後ろの文字に揃える）
 
 # ask "質問" [既定値] -> 回答を標準出力に出す（-y のときは既定値）
 ask() {
@@ -42,13 +43,13 @@ ask() {
     printf '%s\n' "$default"
     return
   fi
-  read -r -p "$prompt${default:+ [$default]}: " answer || answer=""
+  read -r -p $'\033[1;32m ? \033[0m '"$prompt${default:+ [$default]}: " answer || answer=""
   printf '%s\n' "${answer:-$default}"
 }
 
 # confirm "質問" -> y なら成功
 confirm() {
-  [[ "$(ask "$1 (y/N)" n)" == [yY]* ]]
+  [[ "$(ask "$1 (y/N)")" == [yY]* ]]   # 空欄は N
 }
 
 usage() {
@@ -129,6 +130,7 @@ backup_mozc() {
 
 # /proc/bus/input/devices を「Sysfs<TAB>EV<TAB>名前」の1行1デバイスに変換して並べる
 #   Sysfs はデバイスごとに固有なので、同じ名前のデバイスがあっても区別できる
+#   comm で比べるので、sort と comm の並び順を C ロケールで揃える（ja_JP.UTF-8 では食い違う）
 device_table() {
   local line name="" sysfs="" ev=""
   while IFS= read -r line || [[ -n "$name" ]]; do
@@ -141,7 +143,7 @@ device_table() {
         name="" sysfs="" ev=""
         ;;
     esac
-  done <"$INPUT_DEVICES" | sort
+  done <"$INPUT_DEVICES" | LC_ALL=C sort
 }
 
 # device_table 形式の行のうち、キーボードらしいものの名前だけを重複なしで出す
@@ -164,7 +166,7 @@ keyboard_names() {
 
 # baseline に無かったキーボードの名前を出す
 new_keyboards() {
-  comm -13 <(printf '%s\n' "$1") <(device_table) | filter_keyboards
+  LC_ALL=C comm -13 <(printf '%s\n' "$1") <(device_table) | filter_keyboards
 }
 
 # 接続中のキーボードを番号付きで表示し、選ばれた名前を標準出力に出す
@@ -180,9 +182,9 @@ choose_keyboard() {
 
   info "接続中のキーボード:"
   for i in "${!names[@]}"; do
-    printf '      %d) %s\n' "$((i + 1))" "${names[$i]}" >&2
+    item "$((i + 1))) ${names[$i]}"
   done
-  choice=$(ask "登録するキーボードの番号（空欄でスキップ）")
+  choice=$(ask "登録するキーボードの番号（Enter でスキップ）")
   [[ -n "$choice" ]] || return 1
   if [[ ! "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#names[@]} )); then
     warn "番号が正しくありません: $choice"
@@ -217,13 +219,26 @@ discard_input() {
   while read -rsn1 -t 0.1 _; do :; done
 }
 
+# 待機中の残り秒数を、同じ行に上書きして表示する（標準エラーが端末のときだけ）
+#   show_wait 経過（0.5 秒単位） / clear_wait で行を消す
+show_wait() {
+  [[ -t 2 ]] || return 0
+  local total=$((DETECT_TIMEOUT * 2)) width=20 filled bar
+  filled=$(( $1 * width / total ))
+  printf -v bar '%*s' "$filled" ''
+  bar="${bar// /#}"
+  printf -v bar '%-*s' "$width" "$bar"
+  printf '\r\033[K    待機中 [%s] 残り %d 秒' "${bar// /-}" $(( (total - $1 + 1) / 2 )) >&2
+}
+clear_wait() { [[ -t 2 ]] && printf '\r\033[K' >&2; return 0; }
+
 # 外付けキーボードを1台検出し、「パターン=配列」の形で標準出力に出す
 detect_keyboard() {
-  local baseline new="" suggestion="" pattern layout line rc key elapsed=0
+  local baseline new="" suggestion="" pattern layout line rc key elapsed=0 pressed=0
   baseline=$(device_table)
 
-  info "外付けキーボードを接続してください（接続済みなら、一度外して繋ぎ直すか、Bluetooth をオフ・オン）"
-  info "自動で検出します。待たずに一覧から選ぶときは Enter（${DETECT_TIMEOUT} 秒で一覧に切り替え）"
+  info "登録するキーボードを接続してください（接続済みなら、抜き挿しするか Bluetooth をオフ・オン）"
+  info "自動で検出します。一覧から選ぶときは Enter"
 
   # 0.5 秒ごとに確認する。read -t を待ち時間に兼用し、Enter が押されたら一覧に切り替える
   #   1文字ずつ読むので、Enter 以外のキーは表示せずに捨てる（次の質問の回答に混ざらない）
@@ -233,32 +248,34 @@ detect_keyboard() {
     if (( ASSUME_YES )); then
       break
     fi
+    show_wait "$elapsed"
     rc=0 key=""
     read -rsn1 -t 0.5 key || rc=$?
     if (( rc == 0 )); then
-      [[ -z "$key" ]] && break   # Enter が押された
+      [[ -z "$key" ]] && { pressed=1; break; }   # Enter が押された
       continue                   # ほかのキーは無視（経過時間にも数えない）
     elif (( rc <= 128 )); then
       sleep 0.5                  # 入力が端末でない（EOF）ときは普通に待つ
     fi
     elapsed=$((elapsed + 1))
   done
+  clear_wait
 
   if [[ -n "$new" ]]; then
     # 接続直後はデバイスが順番に現れるので、少し待ってから全部拾う
     sleep 1
     discard_input
     new=$(new_keyboards "$baseline")
-    info "新しく見つかったキーボード:"
-    while IFS= read -r line; do printf '      %s\n' "$line" >&2; done <<<"$new"
+    info "見つかりました:"
+    while IFS= read -r line; do item "$line"; done <<<"$new"
     suggestion=$(common_prefix <<<"$new")
     [[ -n "$suggestion" ]] || suggestion=$(head -n1 <<<"$new")
   else
-    warn "新しく接続されたキーボードは見つかりませんでした。接続中のキーボードから選んでください"
+    (( pressed )) || warn "${DETECT_TIMEOUT} 秒待っても見つからないので、接続中のキーボードから選んでください"
     suggestion=$(choose_keyboard) || return 1
   fi
 
-  pattern=$(ask "ルールに使う名前（この文字列を含むデバイスが対象）" "$suggestion")
+  pattern=$(ask "ルールに使う名前（これを含む名前のデバイスが対象。Enter でそのまま）" "$suggestion")
   [[ -n "$pattern" ]] || { warn "名前が空なので登録しません"; return 1; }
 
   layout=$(ask "このキーボードの配列 (us / jp)" us)

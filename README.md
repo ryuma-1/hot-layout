@@ -106,10 +106,11 @@ KEYBOARD_RULES='Keychron K2=us' DEFAULT_LAYOUT=jp bin/hotplug-layout
 tests/test_decide_layout.sh
 tests/test_apply_xkb_layout.sh
 tests/test_apply_mozc_layout.sh
+tests/test_detect_keyboard.sh
 shellcheck -x bin/hotplug-layout install.sh uninstall.sh tests/*.sh
 ```
 
-テストは実機のキーボードも GNOME も使いません。`test_decide_layout.sh` は `tests/fixtures/` の偽のデバイス一覧で、どの配列が選ばれるかを確かめます。`test_apply_xkb_layout.sh` は `gsettings` を偽物に差し替えて、入力ソースの書き換え方を確かめます。`test_apply_mozc_layout.sh` は `ibus` を偽物に差し替えて、起動時とホットプラグのときに IBus が再起動されるかを確かめます。
+テストは実機のキーボードも GNOME も使いません。`test_decide_layout.sh` は `tests/fixtures/` の偽のデバイス一覧で、どの配列が選ばれるかを確かめます。`test_apply_xkb_layout.sh` は `gsettings` を偽物に差し替えて、入力ソースの書き換え方を確かめます。`test_apply_mozc_layout.sh` は `ibus` を偽物に差し替えて、起動時とホットプラグのときに IBus が再起動されるかを確かめます。`test_detect_keyboard.sh` は `install.sh` のキーボード検出を疑似端末（`script`、ja_JP.UTF-8 ロケールが必要）の中で動かし、待機中の表示と登録される値を確かめます。
 
 新しいデバイス一覧で判定を手早く確かめたいときは、`INPUT_DEVICES` 環境変数で本体が読む一覧を差し替えられます。
 
